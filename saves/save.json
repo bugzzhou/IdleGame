@@ -1,0 +1,11 @@
+{
+  "Name": "Adventurer",
+  "Level": 245,
+  "Exp": 2100,
+  "Health": 100,
+  "BaseAttack": 367,
+  "BaseDefence": 129,
+  "Weapon": {},
+  "Armor": {},
+  "Props": {}
+}

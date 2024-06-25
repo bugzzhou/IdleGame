@@ -1,41 +1,29 @@
 package everything
 
 import (
+	"encoding/json"
+	"fight/gotool/file"
+	"fight/models"
 	"fmt"
 	"math/rand"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"time"
 )
 
-type Character struct {
-	Name        string
-	Level       int
-	Exp         int
-	Health      int
-	BaseAttack  int
-	BaseDefence int
-	Weapon      WeaponS
-	Armor       ArmorS
-	Props       PropsS
-}
+const saveDir = "./saves"
 
-// TODO jszhou 完善武器、护甲、道具
-type WeaponS struct {
-}
-type ArmorS struct {
-}
-type PropsS struct {
-}
-type Booty struct {
-}
+var savePath = filepath.Join(saveDir, "save.json")
 
 // TODO jszhou 背包机制
-func Combat(adventurer, monster Character) (bool, int, Booty) {
+func Combat(adventurer, monster models.Character) (bool, int, models.Booty) {
 	rand.Seed(time.Now().UnixNano())
 
 	var res bool
 	for {
 		OneCombat(&adventurer, &monster)
-		time.Sleep(200 * time.Millisecond)
+
 		if monster.Health <= 0 {
 			fmt.Println("win")
 			fmt.Println("player's heath is: ", adventurer.Health)
@@ -51,17 +39,18 @@ func Combat(adventurer, monster Character) (bool, int, Booty) {
 			break
 		}
 	}
-	time.Sleep(1 * time.Second)
+	// time.Sleep(1 * time.Second)
 
 	exp := monster.Level*3 + 50
 
-	return res, exp, Booty{}
+	return res, exp, models.Booty{}
 }
 
 // TODO jszhou 攻击 可以设置上范围内上下浮动的机制
 // TODO jszhou 防御可以修改成 减少 f(defence) % 的形式，而不是减少绝对值
-func OneCombat(adventurer, monster *Character) {
-	fmt.Printf("玩家血量为: %d 敌人血量为: %d\n", adventurer.Health, monster.Health)
+func OneCombat(adventurer, monster *models.Character) {
+	// time.Sleep(200 * time.Millisecond)
+	// fmt.Printf("玩家血量为: %d 敌人血量为: %d\n", adventurer.Health, monster.Health)
 
 	if adventurer.BaseAttack > monster.BaseDefence {
 		monster.Health = monster.Health - (adventurer.BaseAttack - monster.BaseDefence)
@@ -76,8 +65,8 @@ func OneCombat(adventurer, monster *Character) {
 	}
 }
 
-func InitAdventurer() Character {
-	return Character{
+func InitAdventurer() models.Character {
+	return models.Character{
 		Name:        "Adventurer",
 		Level:       1,
 		Exp:         0,
@@ -88,8 +77,8 @@ func InitAdventurer() Character {
 }
 
 // TODO jszhou monster根据level生成的数值上下浮动
-func Encounter(level int) Character {
-	return Character{
+func Encounter(level int) models.Character {
+	return models.Character{
 		Name:        "Monster",
 		Health:      95 + rand.Intn(10),
 		BaseAttack:  8 + rand.Intn(4),
@@ -97,7 +86,7 @@ func Encounter(level int) Character {
 	}
 }
 
-func Display(adventurer, monster Character) {
+func Display(adventurer, monster models.Character) {
 	fmt.Printf("冒险者的属性如下：\n")
 	fmt.Printf("health: %d\n", adventurer.Health)
 	fmt.Printf("level: %d\n", adventurer.Level)
@@ -110,22 +99,84 @@ func Display(adventurer, monster Character) {
 	fmt.Printf("Defence: %d\n\n", monster.BaseDefence)
 }
 
-func Develop(adventurer *Character, exp int) {
-	exp, level := levelUp(adventurer.Exp+exp, adventurer.Level)
+func Develop(adventurer *models.Character, exp int) {
+	exp, level, attack, defence := levelUp(adventurer.Exp+exp, adventurer.Level, adventurer.BaseAttack, adventurer.BaseDefence)
 	adventurer.Exp = exp
 	adventurer.Level = level
+	adventurer.BaseAttack = attack
+	adventurer.BaseDefence = defence
 }
 
 // TODO jszhou 将经验机制完善
-func levelUp(exp, level int) (int, int) {
+func levelUp(exp, level, attack, defence int) (int, int, int, int) {
 	if exp-(level*50+50) < 0 {
-		return exp, level
+		return exp, level, attack, defence
 	}
 
 	for exp-(level*50+50) >= 0 {
 		level += 1
+		attack += (rand.Intn(2) + 1)
+		defence += rand.Intn(2)
 	}
 
-	return exp - level*50, level
+	return exp - level*50, level, attack, defence
 
+}
+
+func HandleUserInput(adventurer *models.Character, monster models.Character) bool {
+	var decide string
+
+	fmt.Println("是否应对敌怪？")
+	fmt.Scan(&decide)
+
+	isNumber, _ := regexp.MatchString(`^\d+$`, decide)
+	if isNumber {
+		n, _ := strconv.Atoi(decide)
+		return CombatMultipleTimes(adventurer, monster, n)
+	}
+
+	switch decide {
+	case "y", "Y":
+		return CombatMultipleTimes(adventurer, monster, 1)
+	case "n", "N":
+		return true
+	case "x", "X":
+		file.Create(savePath, *adventurer)
+		return false
+	default:
+		fmt.Println("选择无效，重新选择，自动为你跳过该敌怪")
+		return true
+	}
+}
+
+// CombatMultipleTimes 函数执行多次战斗并处理结果
+func CombatMultipleTimes(adventurer *models.Character, monster models.Character, times int) bool {
+	for i := 0; i < times; i++ {
+		success, exp, _ := Combat(*adventurer, monster)
+		if success {
+			Develop(adventurer, exp)
+		} else {
+			fmt.Println("输了")
+			return false
+		}
+	}
+	return true
+}
+
+func GetAdventurer() (models.Character, error) {
+	adventurer := models.Character{}
+
+	if file.IsExist(savePath) {
+		a := file.GetBytesByPath(savePath)
+		err := json.Unmarshal(a, &adventurer)
+		if err != nil {
+			fmt.Printf("failed to unmarshal, and err is: %s\n", err.Error())
+			return adventurer, err
+		}
+	} else {
+		adventurer = InitAdventurer()
+		file.Create(savePath, adventurer)
+	}
+
+	return adventurer, nil
 }
